@@ -36,3 +36,9 @@ groups/global/*
 .nanoclaw/
 
 agents-sdk-docs
+
+# Local workspace content (business data, never push to public fork)
+notes/
+context/
+screenshots/
+PERSONAL_CLAUDE.md

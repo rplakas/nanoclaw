@@ -26,6 +26,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -237,6 +238,7 @@ function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   isMain: boolean,
+  group: RegisteredGroup,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -258,6 +260,24 @@ function buildContainerArgs(
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
   } else {
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+  }
+
+  // Model and thinking config from group containerConfig
+  if (group.containerConfig?.model) {
+    args.push('-e', `CLAUDE_MODEL=${group.containerConfig.model}`);
+  }
+  if (group.containerConfig?.thinkingTokens) {
+    args.push('-e', `CLAUDE_THINKING_TOKENS=${group.containerConfig.thinkingTokens}`);
+  }
+
+  // Forward specific .env keys to the container
+  if (group.containerConfig?.envPassthrough?.length) {
+    const envValues = readEnvFile(group.containerConfig.envPassthrough);
+    for (const key of group.containerConfig.envPassthrough) {
+      if (envValues[key]) {
+        args.push('-e', `${key}=${envValues[key]}`);
+      }
+    }
   }
 
   // Runtime-specific args for host gateway resolution
@@ -307,7 +327,7 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName, input.isMain);
+  const containerArgs = buildContainerArgs(mounts, containerName, input.isMain, group);
 
   logger.debug(
     {

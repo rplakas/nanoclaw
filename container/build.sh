@@ -21,3 +21,10 @@ echo "Image: ${IMAGE_NAME}:${TAG}"
 echo ""
 echo "Test with:"
 echo "  echo '{\"prompt\":\"What is 2+2?\",\"groupFolder\":\"test\",\"chatJid\":\"test@g.us\",\"isMain\":false}' | ${CONTAINER_RUNTIME} run -i ${IMAGE_NAME}:${TAG}"
+
+# Stop the builder VM to reclaim ~2GB of RAM.
+# Apple Container keeps it running after a build; it auto-restarts on the next build.
+if command -v container >/dev/null 2>&1; then
+  echo "Stopping builder VM to free RAM..."
+  container builder stop 2>/dev/null && echo "Builder stopped." || true
+fi

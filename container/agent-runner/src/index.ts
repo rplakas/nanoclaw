@@ -470,6 +470,10 @@ async function runQuery(
         'NotebookEdit',
         'mcp__nanoclaw__*',
       ],
+      model: process.env.CLAUDE_MODEL || undefined,
+      maxThinkingTokens: process.env.CLAUDE_THINKING_TOKENS
+        ? parseInt(process.env.CLAUDE_THINKING_TOKENS, 10)
+        : undefined,
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,

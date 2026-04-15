@@ -23,7 +23,12 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     curl \
     git \
+    python3 \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Pre-install Python packages needed for Google Ads + GA4 reports
+RUN pip install --break-system-packages google-auth google-auth-oauthlib requests google-analytics-data google-api-python-client
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium

@@ -30,6 +30,9 @@ export interface AllowedRoot {
 export interface ContainerConfig {
   additionalMounts?: AdditionalMount[];
   timeout?: number; // Default: 300000 (5 minutes)
+  model?: string; // Claude model ID (e.g. "claude-sonnet-4-6")
+  thinkingTokens?: number; // Max thinking tokens (e.g. 10000 for "high")
+  envPassthrough?: string[]; // .env keys to forward to the container
 }
 
 export interface RegisteredGroup {
