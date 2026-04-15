@@ -8,8 +8,10 @@ import os from 'os';
 
 import { logger } from './logger.js';
 
-/** The container runtime binary name. */
-export const CONTAINER_RUNTIME_BIN = 'container';
+/** The container runtime binary name. Defaults: docker on Linux, container on macOS. Overridable via CONTAINER_RUNTIME env var. */
+export const CONTAINER_RUNTIME_BIN =
+  process.env.CONTAINER_RUNTIME ||
+  (os.platform() === 'linux' ? 'docker' : 'container');
 
 /**
  * IP address containers use to reach the host machine.
@@ -74,10 +76,18 @@ export function stopContainer(name: string): void {
 
 /** Ensure the container runtime is running, starting it if needed. */
 export function ensureContainerRuntimeRunning(): void {
+  const isDocker = CONTAINER_RUNTIME_BIN === 'docker';
+  const statusCmd = isDocker
+    ? `${CONTAINER_RUNTIME_BIN} info`
+    : `${CONTAINER_RUNTIME_BIN} system status`;
   try {
-    execSync(`${CONTAINER_RUNTIME_BIN} system status`, { stdio: 'pipe' });
+    execSync(statusCmd, { stdio: 'pipe' });
     logger.debug('Container runtime already running');
   } catch {
+    if (isDocker) {
+      logger.error('Docker daemon not reachable — ensure docker.service is running');
+      throw new Error('Docker daemon not running. Run: sudo systemctl start docker');
+    }
     logger.info('Starting container runtime...');
     try {
       execSync(`${CONTAINER_RUNTIME_BIN} system start`, {
@@ -118,19 +128,31 @@ export function ensureContainerRuntimeRunning(): void {
 
 /** Kill orphaned NanoClaw containers from previous runs. */
 export function cleanupOrphans(): void {
+  const isDocker = CONTAINER_RUNTIME_BIN === 'docker';
   try {
-    const output = execSync(`${CONTAINER_RUNTIME_BIN} ls --format json`, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-    });
-    const containers: { status: string; configuration: { id: string } }[] =
-      JSON.parse(output || '[]');
-    const orphans = containers
-      .filter(
-        (c) =>
-          c.status === 'running' && c.configuration.id.startsWith('nanoclaw-'),
-      )
-      .map((c) => c.configuration.id);
+    let orphans: string[];
+    if (isDocker) {
+      // Docker: list running container names matching nanoclaw- prefix
+      const output = execSync(
+        `${CONTAINER_RUNTIME_BIN} ps --filter name=nanoclaw- --format {{.Names}}`,
+        { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
+      );
+      orphans = output.split('\n').filter((n) => n.startsWith('nanoclaw-'));
+    } else {
+      // Apple Container: ls --format json
+      const output = execSync(`${CONTAINER_RUNTIME_BIN} ls --format json`, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+      });
+      const containers: { status: string; configuration: { id: string } }[] =
+        JSON.parse(output || '[]');
+      orphans = containers
+        .filter(
+          (c) =>
+            c.status === 'running' && c.configuration.id.startsWith('nanoclaw-'),
+        )
+        .map((c) => c.configuration.id);
+    }
     for (const name of orphans) {
       try {
         stopContainer(name);
