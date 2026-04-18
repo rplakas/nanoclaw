@@ -4,6 +4,7 @@
  */
 import { ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -78,8 +79,18 @@ function buildVolumeMounts(
       readonly: true,
     });
 
-    // .env shadowing is handled inside the container entrypoint via mount --bind
-    // (Apple Container only supports directory mounts, not file mounts like /dev/null)
+    // .env shadowing:
+    // - Apple Container (macOS): only supports directory mounts, so the entrypoint
+    //   does `mount --bind /dev/null /workspace/project/.env` at runtime.
+    // - Docker (Linux): containers lack CAP_SYS_ADMIN by default, so the
+    //   entrypoint's mount --bind fails. Shadow at the Docker mount layer instead.
+    if (os.platform() === 'linux') {
+      mounts.push({
+        hostPath: '/dev/null',
+        containerPath: '/workspace/project/.env',
+        readonly: true,
+      });
+    }
 
     // Main gets writable access to the store (SQLite DB) so it can
     // query and write to the database directly.
@@ -267,7 +278,10 @@ function buildContainerArgs(
     args.push('-e', `CLAUDE_MODEL=${group.containerConfig.model}`);
   }
   if (group.containerConfig?.thinkingTokens) {
-    args.push('-e', `CLAUDE_THINKING_TOKENS=${group.containerConfig.thinkingTokens}`);
+    args.push(
+      '-e',
+      `CLAUDE_THINKING_TOKENS=${group.containerConfig.thinkingTokens}`,
+    );
   }
 
   // Forward specific .env keys to the container
@@ -327,7 +341,12 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName, input.isMain, group);
+  const containerArgs = buildContainerArgs(
+    mounts,
+    containerName,
+    input.isMain,
+    group,
+  );
 
   logger.debug(
     {

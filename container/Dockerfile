@@ -57,12 +57,15 @@ RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/
 
 # Create entrypoint script
 # Container input (prompt, group info) is passed via stdin JSON.
-# Credentials are injected by the host's credential proxy — never passed here.
+# Credentials are injected by the host's credential proxy - never passed here.
 # Follow-up messages arrive via IPC files in /workspace/ipc/input/
-# Apple Container only supports directory mounts (VirtioFS), so .env cannot be
-# shadowed with a host-side /dev/null file mount. Instead the entrypoint starts
-# as root, uses mount --bind to shadow .env, then drops to the host user via setpriv.
-RUN printf '#!/bin/bash\nset -e\n\n# Shadow .env so the agent cannot read host secrets (requires root)\nif [ "$(id -u)" = "0" ] && [ -f /workspace/project/.env ]; then\n  mount --bind /dev/null /workspace/project/.env\nfi\n\n# Compile agent-runner\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\n\n# Capture stdin (secrets JSON) to temp file\ncat > /tmp/input.json\n\n# Drop privileges if running as root (main-group containers)\nif [ "$(id -u)" = "0" ] && [ -n "$RUN_UID" ]; then\n  chown "$RUN_UID:$RUN_GID" /tmp/input.json /tmp/dist\n  exec setpriv --reuid="$RUN_UID" --regid="$RUN_GID" --clear-groups -- node /tmp/dist/index.js < /tmp/input.json\nfi\n\nexec node /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# .env shadowing:
+#   Apple Container (macOS): only supports directory mounts. Entrypoint uses
+#     `mount --bind /dev/null /workspace/project/.env` at runtime.
+#   Docker (Linux): containers lack CAP_SYS_ADMIN; host-side `/dev/null` file
+#     mount is added by container-runner.ts. The internal bind is attempted
+#     anyway and fails harmlessly (|| true) without killing the entrypoint.
+RUN printf '#!/bin/bash\nset -e\n\n# Shadow .env so the agent cannot read host secrets (requires root).\n# On Docker, the host-side /dev/null mount already shadows it; the internal\n# bind will fail due to missing CAP_SYS_ADMIN and is tolerated.\nif [ "$(id -u)" = "0" ] && [ -f /workspace/project/.env ]; then\n  mount --bind /dev/null /workspace/project/.env 2>/dev/null || true\nfi\n\n# Compile agent-runner\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\n\n# Capture stdin (secrets JSON) to temp file\ncat > /tmp/input.json\n\n# Drop privileges if running as root (main-group containers)\nif [ "$(id -u)" = "0" ] && [ -n "$RUN_UID" ]; then\n  chown "$RUN_UID:$RUN_GID" /tmp/input.json /tmp/dist\n  exec setpriv --reuid="$RUN_UID" --regid="$RUN_GID" --clear-groups -- node /tmp/dist/index.js < /tmp/input.json\nfi\n\nexec node /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace && chmod 777 /home/node
