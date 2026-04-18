@@ -14,13 +14,18 @@ export const CONTAINER_RUNTIME_BIN =
   (os.platform() === 'linux' ? 'docker' : 'container');
 
 /**
- * IP address containers use to reach the host machine.
- * Apple Container VMs use a bridge network (192.168.64.x); the host is at the gateway.
- * Detected from the bridge0 interface, falling back to 192.168.64.1.
+ * Hostname/IP containers use to reach the host machine.
+ * - Docker (Linux): host.docker.internal, added to /etc/hosts via hostGatewayArgs.
+ * - Apple Container (macOS): bridge network gateway (192.168.64.x).
  */
 export const CONTAINER_HOST_GATEWAY = detectHostGateway();
 
 function detectHostGateway(): string {
+  if (os.platform() === 'linux') {
+    // Docker containers reach the host via host.docker.internal (added via
+    // --add-host=host.docker.internal:host-gateway in hostGatewayArgs).
+    return 'host.docker.internal';
+  }
   // Apple Container on macOS: containers reach the host via the bridge network gateway
   const ifaces = os.networkInterfaces();
   const bridge = ifaces['bridge100'] || ifaces['bridge0'];
@@ -85,8 +90,12 @@ export function ensureContainerRuntimeRunning(): void {
     logger.debug('Container runtime already running');
   } catch {
     if (isDocker) {
-      logger.error('Docker daemon not reachable — ensure docker.service is running');
-      throw new Error('Docker daemon not running. Run: sudo systemctl start docker');
+      logger.error(
+        'Docker daemon not reachable — ensure docker.service is running',
+      );
+      throw new Error(
+        'Docker daemon not running. Run: sudo systemctl start docker',
+      );
     }
     logger.info('Starting container runtime...');
     try {
@@ -149,7 +158,8 @@ export function cleanupOrphans(): void {
       orphans = containers
         .filter(
           (c) =>
-            c.status === 'running' && c.configuration.id.startsWith('nanoclaw-'),
+            c.status === 'running' &&
+            c.configuration.id.startsWith('nanoclaw-'),
         )
         .map((c) => c.configuration.id);
     }
